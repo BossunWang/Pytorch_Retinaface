@@ -296,13 +296,23 @@ def main():
     #
     # crop_face(net, device, cfg, data_dir, target_dir)
 
-    data_dir = '../face_dataset/calfw/aligned_images'
-    target_dir = '../face_dataset/calfw/aligned_images_crop'
+    # data_dir = '../face_dataset/calfw/aligned_images'
+    # target_dir = '../face_dataset/calfw/aligned_images_crop'
+    #
+    # crop_face(net, device, cfg, data_dir, target_dir)
+    #
+    # data_dir = '../face_dataset/cplfw/aligned_images'
+    # target_dir = '../face_dataset/cplfw/aligned_images_crop'
+    #
+    # crop_face(net, device, cfg, data_dir, target_dir)
 
-    crop_face(net, device, cfg, data_dir, target_dir)
+    # data_dir = '../face_dataset/Celeba/img_align_celeba'
+    # target_dir = '../face_dataset/Celeba/img_align_celeba_crop'
+    #
+    # crop_face(net, device, cfg, data_dir, target_dir)
 
-    data_dir = '../face_dataset/cplfw/aligned_images'
-    target_dir = '../face_dataset/cplfw/aligned_images_crop'
+    data_dir = '../face_dataset/GEO_Mask_Testing_Dataset'
+    target_dir = '../face_dataset/GEO_Mask_Testing_Dataset_crop'
 
     crop_face(net, device, cfg, data_dir, target_dir)
 
