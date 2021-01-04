@@ -87,6 +87,16 @@ def crop_face(net, device, cfg, data_dir, target_dir):
             if img_raw is None:
                 continue
 
+            im_height, im_width, _ = img_raw.shape
+            print(img_raw.shape)
+
+            if im_height > 1000.0:
+                scale_rate = 1000.0 / im_height
+                img_raw = cv2.resize(img_raw, (int(im_width * scale_rate), 1000))
+            elif im_width > 1000.0:
+                scale_rate = 1000.0 / im_width
+                img_raw = cv2.resize(img_raw, (1000, int(im_height * scale_rate)))
+
             img = np.float32(img_raw)
 
             im_height, im_width, _ = img.shape
@@ -315,6 +325,11 @@ def main():
     target_dir = '../face_dataset/GEO_Mask_Testing_Dataset_crop'
 
     crop_face(net, device, cfg, data_dir, target_dir)
+
+    # data_dir = '../face_dataset/GEO_enroll'
+    # target_dir = '../face_dataset/GEO_enroll_crop'
+    #
+    # crop_face(net, device, cfg, data_dir, target_dir)
 
 
 if __name__ == '__main__':
