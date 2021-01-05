@@ -63,7 +63,7 @@ def load_model(model, pretrained_path, load_to_cpu):
     return model
 
 
-def crop_face(net, device, cfg, data_dir, target_dir):
+def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scale=0.0, up_scale=0.0, low_scale=0.0):
     resize = 1
 
     landmark_target_dir = target_dir + '_landmark'
@@ -184,7 +184,14 @@ def crop_face(net, device, cfg, data_dir, target_dir):
                 #     # print(b[2], b[3])
 
                 b = [p if p > 0 else 0 for p in b]
-
+                b[1] -= int((b[3] - b[1]) * up_scale)
+                b[3] += int((b[3] - b[1]) * low_scale)
+                b[0] -= int((b[2] - b[0]) * left_scale)
+                b[2] += int((b[2] - b[0]) * right_scale)
+                b[1] = b[1] if b[1] >= 0 else 0
+                b[3] = b[3] if b[3] < im_height else im_height - 1
+                b[0] = b[0] if b[0] >= 0 else 0
+                b[2] = b[2] if b[2] < im_width else im_width - 1
                 roi_image = np.copy(img_raw[b[1]:b[3], b[0]:b[2]])
                 box_w = abs(b[1] - b[3])
                 box_h = abs(b[0] - b[2])
@@ -265,6 +272,7 @@ def crop_face(net, device, cfg, data_dir, target_dir):
 
                 cv2.imshow('crop', roi_image)
                 cv2.imshow('aligned', aligned_image)
+                cv2.imshow('landmark', show_image)
                 cv2.imshow('result', new_image)
                 cv2.waitKey(1)
                 # break
@@ -324,8 +332,14 @@ def main():
     data_dir = '../face_dataset/GEO_Mask_Testing_Dataset'
     target_dir = '../face_dataset/GEO_Mask_Testing_Dataset_crop'
 
+    # crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.1, right_scale=0.1, up_scale=0.1, low_scale=0.1)
     crop_face(net, device, cfg, data_dir, target_dir)
 
+    # data_dir = '../face_dataset/GEO_identity'
+    # target_dir = '../face_dataset/GEO_identity_crop'
+    #
+    # crop_face(net, device, cfg, data_dir, target_dir)
+    #
     # data_dir = '../face_dataset/GEO_enroll'
     # target_dir = '../face_dataset/GEO_enroll_crop'
     #
