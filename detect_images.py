@@ -90,12 +90,14 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
             im_height, im_width, _ = img_raw.shape
             print(img_raw.shape)
 
-            if im_height > 1000.0:
-                scale_rate = 1000.0 / im_height
-                img_raw = cv2.resize(img_raw, (int(im_width * scale_rate), 1000))
-            elif im_width > 1000.0:
-                scale_rate = 1000.0 / im_width
-                img_raw = cv2.resize(img_raw, (1000, int(im_height * scale_rate)))
+            scale_with = 640
+            scale_height = 480
+            if im_height > scale_height:
+                scale_rate = scale_height / im_height
+                img_raw = cv2.resize(img_raw, (int(im_width * scale_rate), scale_height))
+            elif im_width > scale_with:
+                scale_rate = scale_with / im_width
+                img_raw = cv2.resize(img_raw, (scale_with, int(im_height * scale_rate)))
 
             img = np.float32(img_raw)
 
@@ -192,6 +194,23 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 b[3] = b[3] if b[3] < im_height else im_height - 1
                 b[0] = b[0] if b[0] >= 0 else 0
                 b[2] = b[2] if b[2] < im_width else im_width - 1
+
+                # retain background
+                b_width = b[2] - b[0]
+                b_height = b[3] - b[1]
+
+                if b_width > b_height:
+                    b[1] -= abs(b_width - b_height) // 2
+                    b[3] += abs(b_width - b_height) // 2
+                elif b_width < b_height:
+                    b[0] -= abs(b_width - b_height) // 2
+                    b[2] += abs(b_width - b_height) // 2
+
+                b[1] = b[1] if b[1] >= 0 else 0
+                b[3] = b[3] if b[3] < im_height else im_height - 1
+                b[0] = b[0] if b[0] >= 0 else 0
+                b[2] = b[2] if b[2] < im_width else im_width - 1
+
                 roi_image = np.copy(img_raw[b[1]:b[3], b[0]:b[2]])
                 box_w = abs(b[1] - b[3])
                 box_h = abs(b[0] - b[2])
@@ -213,10 +232,17 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 cv2.circle(show_image, (mouth2[0], mouth2[1]), 3, (0, 255, 0), -1)
 
                 # compute the angle between the eye centroids
-                dY = rightEyeCenter[1] - leftEyeCenter[1]
-                dX = rightEyeCenter[0] - leftEyeCenter[0]
-                angle = np.degrees(np.arctan2(dY, dX))
-                print(angle)
+                eye_dis = np.sqrt((leftEyeCenter[0] - rightEyeCenter[0]) ** 2
+                               + (leftEyeCenter[1] - rightEyeCenter[1]) ** 2)
+                print('eye_dis:', eye_dis)
+
+                if eye_dis < 16.0:
+                    angle = 0
+                else:
+                    dY = rightEyeCenter[1] - leftEyeCenter[1]
+                    dX = rightEyeCenter[0] - leftEyeCenter[0]
+                    angle = np.degrees(np.arctan2(dY, dX))
+                print('angle:', angle)
 
                 desiredLeftEye = (1.0, 1.0)
                 desiredFaceWidth = roi_image.shape[1]
@@ -235,7 +261,7 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 # scale = desiredDist / dist
                 scale = desiredFaceWidth / max(roi_image.shape[:2])
                 resize_roi_image = cv2.resize(roi_image, (int(roi_image.shape[1] * scale), int(roi_image.shape[0] * scale)))
-                cv2.imshow('resize_roi_image', resize_roi_image)
+                # cv2.imshow('resize_roi_image', resize_roi_image)
                 print(max(roi_image.shape))
                 print(scale)
 
@@ -254,14 +280,14 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
 
                 if box_h < box_w:
                     padding_size = abs(box_w - box_h) // 2
-                    padding = cv2.copyMakeBorder(aligned_image, 0, 0, padding_size, padding_size, cv2.BORDER_CONSTANT,
+                    aligned_image = cv2.copyMakeBorder(aligned_image, 0, 0, padding_size, padding_size, cv2.BORDER_CONSTANT,
                                                  value=[0, 0, 0])
-                else:
+                elif box_h > box_w:
                     padding_size = abs(box_w - box_h) // 2
-                    padding = cv2.copyMakeBorder(aligned_image, padding_size, padding_size, 0, 0, cv2.BORDER_CONSTANT,
+                    aligned_image = cv2.copyMakeBorder(aligned_image, padding_size, padding_size, 0, 0, cv2.BORDER_CONSTANT,
                                                  value=[0, 0, 0])
 
-                new_image = cv2.resize(padding, (112, 112), interpolation=cv2.INTER_AREA)
+                new_image = cv2.resize(aligned_image, (112, 112), interpolation=cv2.INTER_AREA)
                 new_path = filepath.replace(data_dir, target_dir)
                 new_landmark_path = filepath.replace(data_dir, landmark_target_dir)
                 new_path = new_path.replace(new_path.split('.')[-1], 'jpg')
@@ -301,9 +327,6 @@ def main():
     # data_dir = '../face_dataset/CASIA-maxpy-clean'
     # target_dir = '../face_dataset/CASIA-maxpy-clean_crop'
 
-    # data_dir = '../face_dataset/NIST_SD32_MEDS_II_face'
-    # target_dir = '../face_dataset/NIST_SD32_MEDS_II_face_crop'
-
     # data_dir = '../frvtTestbed/pnas/images'
     # target_dir = '../frvtTestbed/pnas_crop'
     #
@@ -329,21 +352,45 @@ def main():
     #
     # crop_face(net, device, cfg, data_dir, target_dir)
 
-    data_dir = '../face_dataset/GEO_Mask_Testing_Dataset'
-    target_dir = '../face_dataset/GEO_Mask_Testing_Dataset_crop'
-
-    # crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.1, right_scale=0.1, up_scale=0.1, low_scale=0.1)
-    crop_face(net, device, cfg, data_dir, target_dir)
-
-    # data_dir = '../face_dataset/GEO_identity'
-    # target_dir = '../face_dataset/GEO_identity_crop'
-    #
+    # data_dir = '../face_dataset/GEO_enroll'
+    # target_dir = '../face_dataset/GEO_enroll_crop'
     # crop_face(net, device, cfg, data_dir, target_dir)
     #
     # data_dir = '../face_dataset/GEO_enroll'
-    # target_dir = '../face_dataset/GEO_enroll_crop'
+    # target_dir = '../face_dataset/GEO_enroll_large_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.1, right_scale=0.1, up_scale=0.1, low_scale=0.1)
     #
+    # data_dir = '../face_dataset/GEO_Mask_Testing_Dataset'
+    # target_dir = '../face_dataset/GEO_Mask_Testing_Dataset_large_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.1, right_scale=0.1, up_scale=0.1, low_scale=0.1)
+    #
+    # data_dir = '../face_dataset/GEO_Mask_Testing_Dataset'
+    # target_dir = '../face_dataset/GEO_Mask_Testing_Dataset_crop'
     # crop_face(net, device, cfg, data_dir, target_dir)
+    #
+    # data_dir = '../face_dataset/GEO_env_dataset'
+    # target_dir = '../face_dataset/GEO_env_dataset_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir)
+    #
+    # data_dir = '../face_dataset/GEO_identity'
+    # target_dir = '../face_dataset/GEO_identity_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir)
+
+    # data_dir = '../face_dataset/MEDS_II'
+    # target_dir = '../face_dataset/MEDS_II_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir)
+    #
+    # data_dir = '../face_dataset/MEDS_II_mask'
+    # target_dir = '../face_dataset/MEDS_II_mask_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir)
+
+    # data_dir = '/media/bossun/Bossun_TX2/face_dataset/CACD_VS'
+    # target_dir = '/media/bossun/Bossun_TX2/face_dataset/CACD_VS_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir)
+
+    data_dir = '../face_dataset/CASIA-maxpy-clean'
+    target_dir = '../face_dataset/CASIA-maxpy-clean_large_crop'
+    crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.05, right_scale=0.05, up_scale=0.05, low_scale=0.05)
 
 
 if __name__ == '__main__':
