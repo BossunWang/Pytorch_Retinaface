@@ -10,14 +10,14 @@ from utils.nms.py_cpu_nms import py_cpu_nms
 import cv2
 from models.retinaface import RetinaFace
 from utils.box_utils import decode, decode_landm
-import time
+from skimage import transform as trans
+
 
 parser = argparse.ArgumentParser(description='Retinaface')
-
-parser.add_argument('-m', '--trained_model', default='./weights/Resnet50_Final.pth',
+parser.add_argument('-m', '--trained_model', default='./weights/mobilenet0.25_Final.pth',
                     type=str, help='Trained state_dict file path to open')
-parser.add_argument('--network', default='resnet50', help='Backbone network mobile0.25 or resnet50')
-parser.add_argument('--cpu', action="store_true", default=False, help='Use cpu inference')
+parser.add_argument('--network', default='mobile0.25', help='Backbone network mobile0.25 or resnet50')
+parser.add_argument('--cpu', type=bool, default=True, help='Use cpu inference')
 parser.add_argument('--confidence_threshold', default=0.02, type=float, help='confidence_threshold')
 parser.add_argument('--top_k', default=5000, type=int, help='top_k')
 parser.add_argument('--nms_threshold', default=0.4, type=float, help='nms_threshold')
@@ -25,6 +25,39 @@ parser.add_argument('--keep_top_k', default=750, type=int, help='keep_top_k')
 parser.add_argument('-s', '--save_image', action="store_true", default=True, help='show detection results')
 parser.add_argument('--vis_thres', default=0.6, type=float, help='visualization_threshold')
 args = parser.parse_args()
+
+src1 = np.array([[51.642, 50.115], [57.617, 49.990], [35.740, 69.007],
+                 [51.157, 89.050], [57.025, 89.702]],
+                dtype=np.float32)
+#<--left
+src2 = np.array([[45.031, 50.118], [65.568, 50.872], [39.677, 68.111],
+                 [45.177, 86.190], [64.246, 86.758]],
+                dtype=np.float32)
+
+#---frontal
+src3 = np.array([[39.730, 51.138], [72.270, 51.138], [56.000, 68.493],
+                 [42.463, 87.010], [69.537, 87.010]],
+                dtype=np.float32)
+
+#-->right
+src4 = np.array([[46.845, 50.872], [67.382, 50.118], [72.737, 68.111],
+                 [48.167, 86.758], [67.236, 86.190]],
+                dtype=np.float32)
+
+#-->right profile
+src5 = np.array([[54.796, 49.990], [60.771, 50.115], [76.673, 69.007],
+                 [55.388, 89.702], [61.257, 89.050]],
+                dtype=np.float32)
+
+src = np.array([src1, src2, src3, src4, src5])
+src_map = {112: src, 224: src * 2}
+
+arcface_src = np.array(
+    [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+     [41.5493, 92.3655], [70.7299, 92.2041]],
+    dtype=np.float32)
+
+arcface_src = np.expand_dims(arcface_src, axis=0)
 
 
 def check_keys(model, pretrained_state_dict):
@@ -61,6 +94,39 @@ def load_model(model, pretrained_path, load_to_cpu):
     check_keys(model, pretrained_dict)
     model.load_state_dict(pretrained_dict, strict=False)
     return model
+
+
+# lmk is prediction; src is template
+def estimate_norm(lmk, image_size=112, mode='arcface'):
+    assert lmk.shape == (5, 2)
+    tform = trans.SimilarityTransform()
+    lmk_tran = np.insert(lmk, 2, values=np.ones(5), axis=1)
+    min_M = []
+    min_index = []
+    min_error = float('inf')
+    if mode == 'arcface':
+        assert image_size == 112
+        src = arcface_src
+    else:
+        src = src_map[image_size]
+    for i in np.arange(src.shape[0]):
+        tform.estimate(lmk, src[i])
+        M = tform.params[0:2, :]
+        results = np.dot(M, lmk_tran.T)
+        results = results.T
+        error = np.sum(np.sqrt(np.sum((results - src[i])**2, axis=1)))
+        #         print(error)
+        if error < min_error:
+            min_error = error
+            min_M = M
+            min_index = i
+    return min_M, min_index
+
+
+def norm_crop(img, landmark, image_size=112, mode='arcface'):
+    M, pose_index = estimate_norm(landmark, image_size, mode)
+    warped = cv2.warpAffine(img, M, (image_size, image_size), borderValue=0.0)
+    return warped
 
 
 def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scale=0.0, up_scale=0.0, low_scale=0.0):
@@ -177,13 +243,6 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                             max_index = di
                 di = max_index
                 b = list(map(int, dets[max_index]))
-                # for di, b in enumerate(dets):
-                #     if b[4] < args.vis_thres:
-                #         continue
-                #     text = "{:.4f}".format(b[4])
-                #     b = list(map(int, b))
-                #     # print(b[0], b[1])
-                #     # print(b[2], b[3])
 
                 b = [p if p > 0 else 0 for p in b]
                 b[1] -= int((b[3] - b[1]) * up_scale)
@@ -214,16 +273,16 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 roi_image = np.copy(img_raw[b[1]:b[3], b[0]:b[2]])
                 box_w = abs(b[1] - b[3])
                 box_h = abs(b[0] - b[2])
-                # print(b[1], b[3])
-                # print(b[0], b[2])
-                # print(box_w, box_h)
+
+                landms[di][0:landms.shape[1]:2] -= b[0]
+                landms[di][1:landms.shape[1]:2] -= b[1]
 
                 show_image = roi_image.copy()
-                leftEyeCenter = (int(landms[di][0] - b[0]), int(landms[di][1] - b[1]))
-                rightEyeCenter = (int(landms[di][2] - b[0]), int(landms[di][3] - b[1]))
-                noseCenter = (int(landms[di][4] - b[0]), int(landms[di][5] - b[1]))
-                mouth1 = (int(landms[di][6] - b[0]), int(landms[di][7] - b[1]))
-                mouth2 = (int(landms[di][8] - b[0]), int(landms[di][9] - b[1]))
+                leftEyeCenter = (int(landms[di][0]), int(landms[di][1]))
+                rightEyeCenter = (int(landms[di][2]), int(landms[di][3]))
+                noseCenter = (int(landms[di][4]), int(landms[di][5]))
+                mouth1 = (int(landms[di][6]), int(landms[di][7]))
+                mouth2 = (int(landms[di][8]), int(landms[di][9]))
 
                 cv2.circle(show_image, (leftEyeCenter[0], leftEyeCenter[1]), 3, (0, 255, 0), -1)
                 cv2.circle(show_image, (rightEyeCenter[0], rightEyeCenter[1]), 3, (0, 255, 0), -1)
@@ -231,77 +290,20 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 cv2.circle(show_image, (mouth1[0], mouth1[1]), 3, (0, 255, 0), -1)
                 cv2.circle(show_image, (mouth2[0], mouth2[1]), 3, (0, 255, 0), -1)
 
-                # compute the angle between the eye centroids
-                eye_dis = np.sqrt((leftEyeCenter[0] - rightEyeCenter[0]) ** 2
-                               + (leftEyeCenter[1] - rightEyeCenter[1]) ** 2)
-                print('eye_dis:', eye_dis)
+                aligned_image = norm_crop(roi_image, landms[di].reshape(-1, 2))
 
-                if eye_dis < 16.0:
-                    angle = 0
-                else:
-                    dY = rightEyeCenter[1] - leftEyeCenter[1]
-                    dX = rightEyeCenter[0] - leftEyeCenter[0]
-                    angle = np.degrees(np.arctan2(dY, dX))
-                print('angle:', angle)
-
-                desiredLeftEye = (1.0, 1.0)
-                desiredFaceWidth = roi_image.shape[1]
-                desiredFaceHeight = roi_image.shape[0]
-
-                # compute the desired right eye x-coordinate based on the
-                # desired x-coordinate of the left eye
-                desiredRightEyeX = 1.0 - desiredLeftEye[0]
-                # determine the scale of the new resulting image by taking
-                # the ratio of the distance between eyes in the *current*
-                # image to the ratio of distance between eyes in the
-                # *desired* image
-                # dist = np.sqrt((dX ** 2) + (dY ** 2))
-                # desiredDist = (desiredRightEyeX - desiredLeftEye[0])
-                # desiredDist *= desiredFaceWidth
-                # scale = desiredDist / dist
-                scale = desiredFaceWidth / max(roi_image.shape[:2])
-                resize_roi_image = cv2.resize(roi_image, (int(roi_image.shape[1] * scale), int(roi_image.shape[0] * scale)))
-                # cv2.imshow('resize_roi_image', resize_roi_image)
-                print(max(roi_image.shape))
-                print(scale)
-
-                # compute center (x, y)-coordinates (i.e., the median point)
-                # between the two eyes in the input image
-                eyesCenter = ((leftEyeCenter[0] + rightEyeCenter[0]) // 2,
-                              (leftEyeCenter[1] + rightEyeCenter[1]) // 2)
-
-                # grab the rotation matrix for rotating and scaling the face
-                M = cv2.getRotationMatrix2D(eyesCenter, angle, 1.0)
-
-                # apply the affine transformation
-                (w, h) = (desiredFaceWidth, desiredFaceHeight)
-                aligned_image = cv2.warpAffine(roi_image, M, (w, h),
-                                        flags=cv2.INTER_CUBIC)
-
-                if box_h < box_w:
-                    padding_size = abs(box_w - box_h) // 2
-                    aligned_image = cv2.copyMakeBorder(aligned_image, 0, 0, padding_size, padding_size, cv2.BORDER_CONSTANT,
-                                                 value=[0, 0, 0])
-                elif box_h > box_w:
-                    padding_size = abs(box_w - box_h) // 2
-                    aligned_image = cv2.copyMakeBorder(aligned_image, padding_size, padding_size, 0, 0, cv2.BORDER_CONSTANT,
-                                                 value=[0, 0, 0])
-
-                new_image = cv2.resize(aligned_image, (112, 112), interpolation=cv2.INTER_AREA)
                 new_path = filepath.replace(data_dir, target_dir)
                 new_landmark_path = filepath.replace(data_dir, landmark_target_dir)
                 new_path = new_path.replace(new_path.split('.')[-1], 'jpg')
                 new_landmark_path = new_landmark_path.replace(new_landmark_path.split('.')[-1], 'jpg')
                 print(new_path)
-                cv2.imwrite(new_path, new_image)
+                cv2.imwrite(new_path, aligned_image)
                 cv2.imwrite(new_landmark_path, show_image)
 
                 cv2.imshow('crop', roi_image)
                 cv2.imshow('aligned', aligned_image)
                 cv2.imshow('landmark', show_image)
-                cv2.imshow('result', new_image)
                 cv2.waitKey(1)
-                # break
 
 
 def main():
@@ -388,13 +390,13 @@ def main():
     # target_dir = '/media/bossun/Bossun_TX2/face_dataset/CACD_VS_crop'
     # crop_face(net, device, cfg, data_dir, target_dir)
 
-    # data_dir = '../face_dataset/CASIA-maxpy-clean'
-    # target_dir = '../face_dataset/CASIA-maxpy-clean_large_crop'
-    # crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.05, right_scale=0.05, up_scale=0.05, low_scale=0.05)
+    data_dir = '../face_dataset/CASIA-maxpy-clean'
+    target_dir = '../face_dataset/CASIA-maxpy-clean_large_crop'
+    crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.1, right_scale=0.1, up_scale=0.1, low_scale=0.1)
 
     data_dir = '../face_dataset/1N_test_dataset_origin/GEO_Mask_Testing_Dataset_1N/identity'
     target_dir = '../face_dataset/1N_test_dataset/GEO_Mask_Testing_Dataset_large_crop_1N/identity'
-    crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.05, right_scale=0.05, up_scale=0.05, low_scale=0.05)
+    crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.1, right_scale=0.1, up_scale=0.1, low_scale=0.1)
 
 
 if __name__ == '__main__':
