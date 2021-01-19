@@ -11,9 +11,9 @@ import cv2
 from models.retinaface import RetinaFace
 from utils.box_utils import decode, decode_landm
 import time
+import tqdm
 
 parser = argparse.ArgumentParser(description='Retinaface')
-
 parser.add_argument('-m', '--trained_model', default='./weights/Resnet50_Final.pth',
                     type=str, help='Trained state_dict file path to open')
 parser.add_argument('--network', default='resnet50', help='Backbone network mobile0.25 or resnet50')
@@ -69,7 +69,7 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
     landmark_target_dir = target_dir + '_landmark'
 
     # testing begin
-    for dir, dirs, files in os.walk(data_dir):
+    for dir, dirs, files in tqdm.tqdm(os.walk(data_dir)):
         new_dir = dir.replace(data_dir, target_dir)
         new_landmark_dir = dir.replace(data_dir, landmark_target_dir)
         if not os.path.isdir(new_dir):
@@ -80,7 +80,7 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
 
         for file in files:
             filepath = os.path.join(dir, file)
-            print(filepath)
+            # print(filepath)
             image_path = filepath
             img_raw = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
@@ -88,7 +88,7 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 continue
 
             im_height, im_width, _ = img_raw.shape
-            print(img_raw.shape)
+            # print(img_raw.shape)
 
             scale_with = 640
             scale_height = 480
@@ -234,7 +234,7 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 # compute the angle between the eye centroids
                 eye_dis = np.sqrt((leftEyeCenter[0] - rightEyeCenter[0]) ** 2
                                + (leftEyeCenter[1] - rightEyeCenter[1]) ** 2)
-                print('eye_dis:', eye_dis)
+                # print('eye_dis:', eye_dis)
 
                 if eye_dis < 16.0:
                     angle = 0
@@ -242,7 +242,7 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                     dY = rightEyeCenter[1] - leftEyeCenter[1]
                     dX = rightEyeCenter[0] - leftEyeCenter[0]
                     angle = np.degrees(np.arctan2(dY, dX))
-                print('angle:', angle)
+                # print('angle:', angle)
 
                 desiredLeftEye = (1.0, 1.0)
                 desiredFaceWidth = roi_image.shape[1]
@@ -262,8 +262,8 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 scale = desiredFaceWidth / max(roi_image.shape[:2])
                 resize_roi_image = cv2.resize(roi_image, (int(roi_image.shape[1] * scale), int(roi_image.shape[0] * scale)))
                 # cv2.imshow('resize_roi_image', resize_roi_image)
-                print(max(roi_image.shape))
-                print(scale)
+                # print(max(roi_image.shape))
+                # print(scale)
 
                 # compute center (x, y)-coordinates (i.e., the median point)
                 # between the two eyes in the input image
@@ -292,15 +292,15 @@ def crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.0, right_scal
                 new_landmark_path = filepath.replace(data_dir, landmark_target_dir)
                 new_path = new_path.replace(new_path.split('.')[-1], 'jpg')
                 new_landmark_path = new_landmark_path.replace(new_landmark_path.split('.')[-1], 'jpg')
-                print(new_path)
+                # print(new_path)
                 cv2.imwrite(new_path, new_image)
-                cv2.imwrite(new_landmark_path, show_image)
+                # cv2.imwrite(new_landmark_path, show_image)
 
-                cv2.imshow('crop', roi_image)
-                cv2.imshow('aligned', aligned_image)
-                cv2.imshow('landmark', show_image)
-                cv2.imshow('result', new_image)
-                cv2.waitKey(1)
+                # cv2.imshow('crop', roi_image)
+                # cv2.imshow('aligned', aligned_image)
+                # cv2.imshow('landmark', show_image)
+                # cv2.imshow('result', new_image)
+                # cv2.waitKey(1)
                 # break
 
 
@@ -388,8 +388,16 @@ def main():
     # target_dir = '/media/bossun/Bossun_TX2/face_dataset/CACD_VS_crop'
     # crop_face(net, device, cfg, data_dir, target_dir)
 
-    data_dir = '../face_dataset/CASIA-maxpy-clean'
-    target_dir = '../face_dataset/CASIA-maxpy-clean_large_crop'
+    # data_dir = '../face_dataset/CASIA-maxpy-clean'
+    # target_dir = '../face_dataset/CASIA-maxpy-clean_large_crop'
+    # crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.05, right_scale=0.05, up_scale=0.05, low_scale=0.05)
+
+    data_dir = '/workspace/data/public/FR/ms1m_database_100k_final/base'
+    target_dir = '/workspace/data/public/FR/ms1m_large_range_crop'
+    crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.05, right_scale=0.05, up_scale=0.05, low_scale=0.05)
+
+    data_dir = '/workspace/data/public/FR/VGGFACE2_Cleandata/train'
+    target_dir = '/workspace/data/public/FR/VGGFACE2_range_crop'
     crop_face(net, device, cfg, data_dir, target_dir, left_scale=0.05, right_scale=0.05, up_scale=0.05, low_scale=0.05)
 
 
